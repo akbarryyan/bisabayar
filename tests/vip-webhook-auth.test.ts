@@ -108,3 +108,45 @@ describe("jalan keluar VIP_WEBHOOK_SIGNATURE_REQUIRED=false", () => {
     expect(hasil.ok).toBe(false);
   });
 });
+
+describe("route handler POST /api/webhook/vip", () => {
+  const panggil = async (signature?: string, body: unknown = { result: false }) => {
+    const { POST } = await import("@/app/api/webhook/vip/route");
+    const { NextRequest } = await import("next/server");
+    const req = new NextRequest("http://localhost/api/webhook/vip", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(signature === undefined ? {} : { "x-client-signature": signature }),
+      },
+      body: JSON.stringify(body),
+    });
+    return POST(req);
+  };
+
+  it("membalas 401 ketika header signature tidak ada", async () => {
+    const res = await panggil();
+    expect(res.status).toBe(401);
+  });
+
+  it("membalas 401 ketika signature salah", async () => {
+    const res = await panggil("a".repeat(32));
+    expect(res.status).toBe(401);
+  });
+
+  it("membalas 200 ketika signature benar", async () => {
+    const res = await panggil(sig(ID_DB, KEY_DB));
+    expect(res.status).toBe(200);
+  });
+
+  it("membalas 200 untuk body yang bukan JSON, tanpa memeriksa signature", async () => {
+    const { POST } = await import("@/app/api/webhook/vip/route");
+    const { NextRequest } = await import("next/server");
+    const req = new NextRequest("http://localhost/api/webhook/vip", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "bukan json",
+    });
+    expect((await POST(req)).status).toBe(200);
+  });
+});
