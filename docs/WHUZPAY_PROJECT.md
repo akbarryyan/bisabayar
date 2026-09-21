@@ -175,3 +175,11 @@ Detail pengujian: [TESTING.md](TESTING.md). Logging: [LOGGING.md](LOGGING.md).
 - **Cakupan test** masih terbatas pada jalur uang dan pembatas laju.
 - **`GET /api/vouchers/validate`** menghitung diskon dari `amount` yang dikirim
   klien, sehingga pratinjaunya bisa berbeda dari yang benar-benar diterapkan.
+- **IP allowlist webhook VIP belum ditegakkan.** IP dicatat tetapi tidak menolak.
+  Karena signature VIP statis dan replayable, penegakan IP adalah lapis berikutnya
+  yang paling bernilai. Lihat §7.2 pada
+  `docs/superpowers/specs/2026-09-21-vip-webhook-auth-design.md`.
+- **`releaseWalletHold` belum punya penjaga idempotensi sendiri.** Di jalur webhook
+  VIP, reconcile, dan eksekusi provider ia terlindungi klaim atomik pemanggilnya.
+  Memberi penjaga pada metodenya sendiri akan melindungi pemanggil berikutnya yang
+  lupa melakukannya.

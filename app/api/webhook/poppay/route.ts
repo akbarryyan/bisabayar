@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getSiteConfigValue } from "@/lib/site-config";
 import { handlePoppayCallback, type PoppayCallbackPayload } from "@/lib/poppay-callback";
 import { getLogger } from "@/lib/logger";
+import { safeEqualHex } from "@/lib/webhook-signature";
 
 export const dynamic = "force-dynamic";
 
@@ -21,22 +22,6 @@ function readHeader(headers: Headers, keys: string[]): string {
 
 function normalizeBool(value: string): boolean {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
-}
-
-function safeEqualHex(left: string, right: string): boolean {
-  const normalizedLeft = left.trim().toLowerCase();
-  const normalizedRight = right.trim().toLowerCase();
-  if (!normalizedLeft || !normalizedRight) return false;
-  if (normalizedLeft.length !== normalizedRight.length) return false;
-
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(normalizedLeft, "utf8"),
-      Buffer.from(normalizedRight, "utf8")
-    );
-  } catch {
-    return false;
-  }
 }
 
 function computeHmacSha256(secret: string, value: string): string {

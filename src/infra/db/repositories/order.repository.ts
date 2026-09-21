@@ -138,6 +138,38 @@ export class OrderRepository {
     });
   }
 
+  /**
+   * Klaim atomik sebuah transisi status.
+   *
+   * `updateStatus` di atas menerima transisi apa pun — database tidak tahu
+   * apa-apa soal state machine di konstitusi §2.3 — dan selalu "berhasil",
+   * sehingga pemanggil tidak bisa membedakan "saya yang memindahkan status"
+   * dari "statusnya kebetulan sudah benar".
+   *
+   * Pembedaan itu yang menentukan siapa boleh menyentuh uang. Pola yang dipakai
+   * sama persis dengan `claimForProcessing`: `updateMany` dengan syarat status,
+   * lalu periksa `count`. MySQL mengevaluasi klausa where dengan kunci baris
+   * saat UPDATE berjalan, jadi dari sekian pemanggil bersamaan hanya satu yang
+   * bisa mengubah baris — dan hanya dia yang menerima `true`.
+   */
+  async claimStatusTransition(
+    orderId: string,
+    from: OrderStatus[],
+    to: OrderStatus,
+    extra?: { serialNumber?: string; providerRef?: string; notes?: string },
+  ): Promise<boolean> {
+    const hasil = await prisma.order.updateMany({
+      where: { id: orderId, status: { in: from } },
+      data: {
+        status: to,
+        ...(extra?.serialNumber !== undefined && { serialNumber: extra.serialNumber }),
+        ...(extra?.providerRef !== undefined && { providerRef: extra.providerRef }),
+        ...(extra?.notes !== undefined && { notes: extra.notes }),
+      },
+    });
+    return hasil.count > 0;
+  }
+
   // ── Payment Invoice ──────────────────────────────────────────────────────
 
   async createInvoice(input: CreateInvoiceInput) {

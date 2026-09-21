@@ -205,3 +205,39 @@ Provider system ini akan digunakan oleh:
 
 **Built with Clean Architecture principles**  
 Mengikuti WHUZPAY_CONSTITUTION.md dan WHUZPAY_PROJECT.md
+
+## Webhook VIP Reseller
+
+`POST /api/webhook/vip` menerima notifikasi status dari VIP.
+
+| Hal | Nilai |
+|---|---|
+| Header signature | `X-Client-Signature: md5(API_ID + API_KEY)` |
+| IP resmi VIP | `178.248.73.218` — dicatat, TIDAK ditegakkan |
+| Kredensial | `site_configs` (`VIP_API_ID`, `VIP_API_KEY`), env sebagai cadangan |
+| Penegakan signature | `VIP_WEBHOOK_SIGNATURE_REQUIRED`, bawaan `true` |
+
+Signature VIP **statis** — sama untuk setiap permintaan dan tidak terikat payload.
+Itu batasan protokol VIP, bukan pilihan kita. Ia membuktikan pengirim mengetahui
+kredensial, bukan bahwa pesan ini baru.
+
+Yang menahan pengiriman ulang karena itu bukan signature, melainkan:
+
+1. Baris `WebhookEvent` dengan `eventId = vip:<trxid>:<status>` — menahan kiriman
+   ulang yang pemrosesannya sudah tuntas.
+2. `claimStatusTransition` — menahan callback yang datang beriringan. Hanya
+   pemenang klaim yang boleh menyentuh uang.
+
+Lapis kedua tidak bisa dihilangkan. `releaseWalletHold` tidak punya penjaga
+idempotensi sendiri — ia hanya menambah saldo — jadi yang melindunginya adalah
+klaim itu. Tanpanya, sepuluh kiriman ulang beriringan menghasilkan sepuluh ledger
+`RELEASE` untuk satu order; angka itu terukur di
+`tests/vip-callback-idempotency.test.ts`.
+
+Bila webhook VIP tiba-tiba tertolak 401 setelah deploy, kemungkinan besar VIP tidak
+mengirim header. Setel `VIP_WEBHOOK_SIGNATURE_REQUIRED` ke `false` lewat
+`/admin/settings` — berlaku seketika, tanpa deploy. Selama jendela itu order tetap
+terpenuhi oleh sapuan rekonsiliasi.
+
+Rancangan lengkap beserta risiko yang diterima:
+`docs/superpowers/specs/2026-09-21-vip-webhook-auth-design.md`
