@@ -736,7 +736,9 @@ Data pindah ke tempat baru tanpa jaring. Cutover belum boleh dianggap selesai sa
 # Pakai:   bash scripts/backup-mysql.sh [/var/www/bisabayar]
 # Crontab: 0 3 * * * bash /var/www/bisabayar/scripts/backup-mysql.sh >> /var/log/bisabayar-backup.log 2>&1
 #
-set -eu
+# pipefail WAJIB: tanpa itu, mysqldump yang gagal tetap menghasilkan exit code 0
+# karena gzip di ujung pipeline berhasil, dan berkas terpotong lolos sebagai sukses.
+set -euo pipefail
 DIR="${1:-/var/www/bisabayar}"
 OUT="$DIR/backups"
 RETENSI_HARI=7
@@ -761,10 +763,12 @@ docker exec bisabayar-mysql mysqldump \
   --single-transaction --quick --routines --triggers \
   "$MYSQL_DATABASE" | gzip -c > "$BERKAS"
 
-# Dump yang gagal tetap menghasilkan berkas gzip kecil. Periksa isinya, jangan
-# cuma keberadaannya.
-if [ "$(stat -c %s "$BERKAS")" -lt 10240 ]; then
-  echo "[$STAMP] GAGAL: hasil dump mencurigakan kecil, dibuang."
+# Yang membuktikan dump utuh adalah penanda akhir yang ditulis mysqldump, BUKAN
+# ukuran berkas. Dump skema database kosong hanya ~6KB setelah gzip, jadi ambang
+# ukuran akan menolak backup yang sebenarnya sempurna — terverifikasi saat
+# pelaksanaan. Dump yang terpotong di tengah jalan tidak akan punya baris ini.
+if ! zcat "$BERKAS" | tail -5 | grep -q -- '-- Dump completed'; then
+  echo "[$STAMP] GAGAL: dump tidak memuat penanda '-- Dump completed', kemungkinan terpotong. Dibuang."
   rm -f "$BERKAS"
   exit 1
 fi
