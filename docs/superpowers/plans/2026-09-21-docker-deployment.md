@@ -33,6 +33,8 @@ Dibuktikan lewat build percobaan sebelum rencana ini ditulis — jangan diuji ul
 | `pino`, `pino-pretty`, `@prisma/client`, `.prisma` tertelusur | ya |
 | `prisma` CLI tertelusur | **tidak** — harus di-`COPY` eksplisit |
 | Ukuran | standalone 123M, `node_modules` penuh 741M, `.next/static` 4.5M |
+| Ukuran image jadi | **514MB** (`docker images`). Dua layer Prisma CLI menyumbang 72,7MB — itu harga agar `migrate deploy` bisa dijalankan dari dalam container. Jangan memakai `docker image inspect --format '{{.Size}}'`; angkanya bukan total |
+| Build context | 6,2MB, dari 923MB repo penuh |
 | Entry CLI Prisma | `node_modules/prisma/build/index.js` |
 | `binaryTargets` di schema | tidak diset — aman, karena `prisma generate` dijalankan di dalam stage alpine sehingga engine musl yang terbentuk |
 
@@ -279,10 +281,21 @@ Kalau `apk add` macet lama: matikan VPN. Itu masalah MTU di bridge network Docke
 `instrumentation.ts` menolak menyala tanpa `SESSION_SECRET` dan `DATABASE_URL`. Perilaku ini harus terbawa ke container — lebih baik gagal keras daripada menyala setengah jalan dengan storefront terlihat sehat sementara login dan checkout diam-diam rusak.
 
 ```bash
-docker run --rm bisabayar:uji 2>&1 | head -20; echo "exit=$?"
+timeout 60 docker run --rm bisabayar:uji 2>&1 | head -20
 ```
 
-Harapan: container berhenti, dan keluarannya memuat `Konfigurasi lingkungan tidak lengkap:` beserta `SESSION_SECRET belum diisi.`
+Harapan: keluarannya memuat `Konfigurasi lingkungan tidak lengkap:` beserta
+`SESSION_SECRET belum diisi.` dan `DATABASE_URL belum diisi.`
+
+**Container-nya TIDAK berhenti**, dan itu bukan kesalahan konfigurasimu.
+`instrumentation.ts` melempar, Next 16 mencatatnya sebagai `unhandledRejection`,
+lalu prosesnya tetap hidup — statusnya `running` sementara `GET /` menjawab `000`.
+Terverifikasi saat pelaksanaan; perilakunya sama di bawah PM2, jadi ini bukan akibat
+Docker.
+
+Karena itu service aplikasi di Task 3 memakai `healthcheck`. Tanpa itu
+`docker compose ps` menampilkan container yang mati di dalam sebagai "Up", dan
+Docker tidak akan me-restart-nya karena ia tidak pernah keluar.
 
 - [ ] **Step 4: Periksa isi image**
 
