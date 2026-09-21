@@ -228,7 +228,7 @@ Verifikasi setelah deploy — baris pertama adalah `server-start` dan memuat
 field `tz`:
 
 ```bash
-head -1 /var/www/whuz-app/logs/app.json
+head -1 /var/www/whuz-app-2/logs/app.json
 ```
 
 ### `pm2 logs` akan sepi
@@ -251,7 +251,7 @@ instances: 4 (cluster) → logs/app.json, app-1.json, app-2.json, app-3.json
 Masing-masing dirotasi sendiri. Untuk membaca semuanya sekaligus:
 
 ```bash
-cat /var/www/whuz-app/logs/app*.json | grep '"level":"error"'
+cat /var/www/whuz-app-2/logs/app*.json | grep '"level":"error"'
 ```
 
 ### `npm run logs:*` butuh devDependencies
