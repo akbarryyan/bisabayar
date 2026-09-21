@@ -1219,11 +1219,16 @@ Tambahkan juga satu baris di tabel Dokumentasi:
 
 - [ ] **Step 5: Periksa tidak ada sisa rujukan transaksikilat**
 
+Yang harus hilang adalah sisa SALINAN — path, nama image, dan nama container milik
+transaksikilat. Rujukan yang menjelaskan perbedaan justru sengaja dipertahankan, karena
+itulah yang mencegah seseorang nanti "memperbaiki" bisabayar agar meniru transaksikilat.
+
 ```bash
-grep -rn 'transaksikilat' docs/ README.md || echo "bersih — tidak ada sisa rujukan"
+grep -rn '/var/www/transaksikilat\|ghcr.io/akbarryyan/transaksikilat\|transaksikilat-app' \
+  docs/DEPLOYMENT.md README.md && echo "MASIH ADA SISA" || echo "bersih"
 ```
 
-Harapan: `bersih`. Kalau masih ada, berarti dokumen transaksikilat belum sepenuhnya tertimpa.
+Harapan: `bersih`.
 
 - [ ] **Step 6: Commit**
 

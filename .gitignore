@@ -51,3 +51,7 @@ next-env.d.ts
 
 docs/database
 .codegraph
+# artefak deployment Docker (ada di VPS, bukan di repo)
+/mysql-data/
+/uploads/
+/backups/

@@ -35,6 +35,7 @@ Test-nya integrasi, bukan unit dengan tiruan. Alasannya ada di
 | [TESTING.md](docs/TESTING.md) | Cara dan alasan pengujian |
 | [LOGGING.md](docs/LOGGING.md) | Log terstruktur, rotasi, penelusuran |
 | [PROVIDER_SYSTEM.md](docs/PROVIDER_SYSTEM.md) | Digiflazz & VIP Reseller |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Build image, deploy, cutover, rollback |
 
 ## Catatan penting
 
@@ -48,7 +49,6 @@ yang sama.
 
 ## Deploy
 
-```bash
-git pull && npm ci && npm run db:migrate && npm run build
-pm2 restart ecosystem.config.js --update-env
-```
+Berjalan di Docker: image dibangun di laptop, di-push ke GHCR, VPS hanya
+`docker compose pull` + `up -d`. Langkah lengkap, cutover dari PM2, dan rollback
+ada di [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
