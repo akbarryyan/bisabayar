@@ -538,7 +538,11 @@ docker compose exec bisabayar-mysql mysql -uroot -p"ujilokal-root" \
 rm ./uploads/bukti.txt
 ```
 
-Harapan: isi `bukti.txt` masih ada, dan jumlah tabel 28 — bukan 0. Nol berarti data MySQL tidak bertahan dan bind mount-nya salah.
+Harapan: isi `bukti.txt` masih ada, dan jumlah tabel **29** — bukan 0. Nol berarti data
+MySQL tidak bertahan dan bind mount-nya salah.
+
+Angkanya 29, bukan 28: 28 model di `schema.prisma` ditambah tabel `_prisma_migrations`
+yang dibuat Prisma sendiri.
 
 - [ ] **Step 7: Bersihkan lingkungan uji**
 
@@ -799,7 +803,7 @@ Backup yang tidak pernah diperiksa bukan backup.
 zcat backups/bisabayar-*.sql.gz | grep -c 'CREATE TABLE'
 ```
 
-Harapan: 28 — sesuai jumlah model di `prisma/schema.prisma`.
+Harapan: **29** — 28 model di `prisma/schema.prisma` ditambah `_prisma_migrations`.
 
 - [ ] **Step 4: Bersihkan**
 
@@ -982,6 +986,27 @@ cd /var/www/bisabayar
 # salin docker-compose.yml dan scripts/ dari repo, lalu susun .env
 ```
 
+**Kepemilikan direktori volume WAJIB disesuaikan.** Container berjalan sebagai uid
+1001, sementara direktori yang baru dibuat milik user host. Bind mount menimpa
+direktori di dalam image beserta kepemilikannya, jadi `chown` di `Dockerfile` tidak
+menolong sama sekali.
+
+Kalau dilewati: `logs/app.json` tidak pernah terbentuk — dan diam-diam, karena
+`lib/logger.ts` menangkap kegagalan izin lalu jatuh ke stdout — sementara setiap
+unggahan gambar gagal. Terverifikasi saat pelaksanaan Task 3.
+
+```bash
+sudo chown -R 1001:1001 /var/www/bisabayar/logs /var/www/bisabayar/uploads
+```
+
+Tanpa akses sudo, hal yang sama bisa dilakukan dari dalam container setelah `up -d`:
+
+```bash
+docker compose exec -u root bisabayar-app \
+  chown -R nextjs:nodejs /app/logs /app/public/uploads
+docker compose restart bisabayar-app
+```
+
 `.env` di VPS wajib memuat `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`,
 `MYSQL_USER`, `MYSQL_PASSWORD`, `SESSION_SECRET`, `APP_URL`, dan:
 
@@ -1092,9 +1117,13 @@ dengan kompresi gzip.
 yang sama. Ini berbeda dari transaksikilat, yang menulis log polos dan memang
 menyerahkan rotasi ke logrotate.
 
+Berkasnya dibuat dengan mode `0640` milik uid 1001, jadi user host biasa **tidak bisa
+membacanya**. Pakai `sudo`, atau baca dari dalam container:
+
 ```bash
-tail -f /var/www/bisabayar/logs/app.json | npx pino-pretty
-grep -hE '"level":"(error|fatal)"' /var/www/bisabayar/logs/app.json | npx pino-pretty
+sudo tail -f /var/www/bisabayar/logs/app.json | npx pino-pretty
+docker compose exec bisabayar-app tail -f /app/logs/app.json | npx pino-pretty
+docker compose exec bisabayar-app grep -hE '"level":"(error|fatal)"' /app/logs/app.json
 ```
 
 Detail: [LOGGING.md](LOGGING.md).

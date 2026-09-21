@@ -1,0 +1,71 @@
+# Deployment bisabayar. VPS hanya `docker compose pull` + `up -d`.
+#
+# SATU instance aplikasi, tidak boleh lebih: pembatas laju disimpan di memori
+# proses dan sapuan rekonsiliasi berjalan di dalam proses. Dua replika berarti
+# batas laju dua kali lipat dan dua sapuan menembak provider yang sama.
+
+services:
+  bisabayar-mysql:
+    image: mysql:8.4
+    container_name: bisabayar-mysql
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Asia/Jakarta
+    volumes:
+      # Bind mount, bukan named volume: isinya harus terlihat dan terukur dari
+      # host. VPS ini pernah penuh 100% karena pemakaian disk Docker tidak
+      # terpantau.
+      - ./mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bisabayar-app:
+    image: ghcr.io/akbarryyan/bisabayar:latest
+    container_name: bisabayar-app
+    restart: unless-stopped
+    depends_on:
+      bisabayar-mysql:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Struktural, bukan rahasia — sengaja di sini, bukan di .env.
+      TZ: Asia/Jakarta
+      LOG_DIR: /app/logs
+    ports:
+      # Diikat ke loopback: nginx host yang mem-proxy. 3003 sudah dipakai
+      # transaksikilat di VPS yang sama.
+      - "127.0.0.1:3004:3000"
+    volumes:
+      - ./uploads:/app/public/uploads
+      - ./logs:/app/logs
+    healthcheck:
+      # Konfigurasi yang salah TIDAK membuat container keluar: instrumentation.ts
+      # melempar, Next mencatatnya sebagai unhandledRejection, lalu prosesnya
+      # tetap hidup tanpa melayani apa pun. Tanpa healthcheck, `docker compose ps`
+      # menampilkannya "Up" dan tidak ada yang tahu aplikasinya mati di dalam.
+      #
+      # fetch global tersedia di Node 22, jadi tidak perlu memasang curl ke image.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
