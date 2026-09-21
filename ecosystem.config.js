@@ -1,5 +1,5 @@
 /**
- * Konfigurasi PM2 untuk deployment di /var/www/whuz-app.
+ * Konfigurasi PM2 untuk deployment di /var/www/whuz-app-2.
  *
  *   pm2 start ecosystem.config.js
  *   pm2 save
@@ -25,7 +25,7 @@
  *    dalam proses server (lihat reconcile-scheduler.service.ts).
  */
 
-const APP_DIR = "/var/www/whuz-app";
+const APP_DIR = "/var/www/whuz-app-2";
 
 /** Variabel yang harus sama di kedua proses. */
 const sharedEnv = {
@@ -40,7 +40,7 @@ const sharedEnv = {
 module.exports = {
   apps: [
     {
-      name: "whuz-app",
+      name: "whuz-app-2",
       cwd: APP_DIR,
       script: "node_modules/next/dist/bin/next",
       args: "start",
