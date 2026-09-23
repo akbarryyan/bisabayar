@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "verify": "tsc --noEmit && npm test",
+    "release": "bash scripts/release.sh",
     "postinstall": "prisma generate",
     "logs:tail": "tail -F logs/app.json | pino-pretty -t \"SYS:standard\" -i pid,app,env",
     "logs:errors": "grep -hE '\"level\":\"(error|fatal)\"' logs/app.json 2>/dev/null | pino-pretty -t \"SYS:standard\" -i pid,app,env",
