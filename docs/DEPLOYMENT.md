@@ -14,12 +14,21 @@ Rancangan lengkap beserta alasannya:
 laptop  --build & push-->  ghcr.io/akbarryyan/bisabayar:latest + :<git-sha>
                                         |
 VPS /var/www/bisabayar  --compose pull & up -d-->
-    bisabayar-app     127.0.0.1:3004 → 3000
+    bisabayar-app     127.0.0.1:3005 → 3000
     bisabayar-mysql   ./mysql-data
 ```
 
-nginx host mem-proxy ke `127.0.0.1:3004`. transaksikilat memakai 3003 di VPS
-yang sama.
+nginx host mem-proxy ke `127.0.0.1:3005`.
+
+**Kenapa 3005.** VPS ini menjalankan lima aplikasi — `whuz-app` di 3000,
+`script-mitrapembayaran` 3001, `bayarinstant` 3002, `transaksikilat` 3003, dan
+`whuz-app-2` (pendahulu container ini, lewat PM2) masih memegang 3004.
+
+Port terpisah bukan sekadar menghindari bentrok: itulah yang membuat cutover
+aman. Container naik dan diuji **selagi PM2 masih melayani trafik**, dan
+perpindahan trafik terjadi hanya pada saat satu baris `proxy_pass` diubah.
+Rollback berarti mengembalikan baris itu — PM2 tidak pernah perlu dimatikan
+sebelum kamu yakin.
 
 ## Build dan push dari laptop
 
@@ -107,7 +116,7 @@ echo "<PAT_READ_PACKAGES>" | docker login ghcr.io -u akbarryyan --password-stdin
 Lalu smoke test:
 
 ```bash
-bash scripts/smoke-docker.sh http://127.0.0.1:3004 /var/www/bisabayar
+bash scripts/smoke-docker.sh http://127.0.0.1:3005 /var/www/bisabayar
 ```
 
 ## Cutover pertama dari PM2
@@ -169,7 +178,53 @@ DATABASE_URL="mysql://bisabayar:<password>@bisabayar-mysql:3306/bisabayar"
 Kredensial provider dan gateway **tidak** perlu disalin — semuanya sudah ada di
 tabel `site_configs`, dan nilai di sana menimpa env.
 
-### 3. Downtime mulai
+### 3. Gladi bersih — TANPA downtime
+
+Port 3005 membuat langkah ini mungkin, dan sebaiknya jangan dilewati. Seluruh
+tumpukan dijalankan memakai salinan data produksi **selagi PM2 tetap melayani
+trafik**, jadi setiap masalah ditemukan tanpa ada pelanggan yang terganggu.
+
+```bash
+cd /var/www/bisabayar
+docker compose pull
+docker compose up -d bisabayar-mysql
+docker compose ps                              # tunggu "healthy"
+
+# --single-transaction membuat dump konsisten tanpa mengunci tabel,
+# jadi aman dijalankan selagi aplikasi lama melayani.
+mysqldump -u root -p --single-transaction --quick --routines --triggers \
+  whuzpay | gzip -c > /root/gladi.sql.gz
+
+zcat /root/gladi.sql.gz | docker exec -i bisabayar-mysql \
+  mysql -u root -p"<MYSQL_ROOT_PASSWORD>" bisabayar
+
+rsync -a /var/www/whuz-app-2/public/uploads/ /var/www/bisabayar/uploads/
+chown -R 1001:1001 /var/www/bisabayar/uploads
+
+docker compose up -d
+bash scripts/smoke-docker.sh http://127.0.0.1:3005 /var/www/bisabayar
+```
+
+Harus `gagal=0`. Buka juga `http://127.0.0.1:3005` lewat tunnel SSH kalau ingin
+memeriksanya dengan mata sendiri:
+
+```bash
+# DI LAPTOP
+ssh -p 2122 -L 8080:127.0.0.1:3005 root@<vps-host>
+# lalu buka http://localhost:8080 di browser
+```
+
+Kalau ada yang salah, perbaiki sekarang — produksi belum tersentuh sama sekali.
+Kalau semuanya hijau, hentikan sementara aplikasinya; datanya akan disegarkan
+dengan dump yang benar-benar final saat cutover:
+
+```bash
+docker compose stop bisabayar-app
+```
+
+`bisabayar-mysql` dibiarkan hidup supaya langkah berikutnya lebih singkat.
+
+### 4. Downtime mulai
 
 ```bash
 pm2 stop whuz-app-2
@@ -181,48 +236,69 @@ datanya akan bercabang setelah dump diambil. Callback yang gagal selama downtime
 akan dikirim ulang oleh gateway, dan `WebhookEvent` beserta sapuan rekonsiliasi
 menangkap sisanya.
 
-### 4. Pindahkan data
+### 5. Pindahkan data — segarkan dengan dump final
+
+Data dari gladi bersih sudah basi beberapa menit. Buang, lalu muat ulang dari
+dump yang diambil setelah PM2 berhenti — inilah satu-satunya dump yang benar.
 
 ```bash
 mysqldump -u root -p --single-transaction --quick --routines --triggers \
-  <nama-db-lama> | gzip -c > /root/bisabayar-cutover.sql.gz
+  whuzpay | gzip -c > /root/bisabayar-cutover.sql.gz
 
 cd /var/www/bisabayar
-docker compose up -d bisabayar-mysql
-docker compose ps                              # tunggu "healthy"
+docker exec -i bisabayar-mysql mysql -u root -p"<MYSQL_ROOT_PASSWORD>" \
+  -e "DROP DATABASE bisabayar; CREATE DATABASE bisabayar;"
 
 zcat /root/bisabayar-cutover.sql.gz | docker exec -i bisabayar-mysql \
   mysql -u root -p"<MYSQL_ROOT_PASSWORD>" bisabayar
 
 rsync -a /var/www/whuz-app-2/public/uploads/ /var/www/bisabayar/uploads/
-sudo chown -R 1001:1001 /var/www/bisabayar/uploads
+chown -R 1001:1001 /var/www/bisabayar/uploads
 ```
+
+`DROP DATABASE` itu wajib. Tanpanya, `mysql < dump` hanya menimpa baris yang
+namanya sama dan **meninggalkan data gladi bersih yang sudah dihapus di
+produksi** — misalnya order yang sempat dibatalkan. Isinya jadi campuran dua
+waktu yang berbeda.
+
+`rsync` kali kedua ini cepat karena hanya menyalin yang berubah sejak gladi
+bersih. Tetap `rsync`, bukan `mv` — berkas lama harus tetap di tempatnya sampai
+rollback tidak lagi dibutuhkan.
 
 `rsync`, bukan `mv` — berkas lama harus tetap di tempatnya sampai rollback tidak
 lagi dibutuhkan. `chown` diulang karena `rsync` membawa kepemilikan asal.
 
-### 5. Naikkan dan uji, produksi masih mati
+### 6. Naikkan dan uji, produksi masih mati
 
 ```bash
-docker compose pull
 docker compose up -d
-bash scripts/smoke-docker.sh http://127.0.0.1:3004 /var/www/bisabayar
+docker compose ps                              # periksa kolom health, bukan status
+bash scripts/smoke-docker.sh http://127.0.0.1:3005 /var/www/bisabayar
 ```
 
-Jangan lanjut kalau ada satu pun yang `GAGAL`.
+Jangan lanjut kalau ada satu pun yang `GAGAL`. Trafik belum berpindah — nginx
+masih menunjuk 3004 — jadi rollback di titik ini cukup `pm2 start whuz-app-2`.
 
-### 6. Alihkan nginx
+### 7. Alihkan nginx
 
-Ubah `proxy_pass` ke `http://127.0.0.1:3004`, lalu:
+**Inilah satu-satunya momen trafik berpindah.** Sampai detik ini nginx masih
+menunjuk 3004, jadi semua langkah sebelumnya bisa dibatalkan tanpa menyentuh
+konfigurasi apa pun.
 
 ```bash
+cp /etc/nginx/sites-available/bisabayar.com /root/bisabayar.com.nginx.bak
+sed -i 's|127.0.0.1:3004|127.0.0.1:3005|' /etc/nginx/sites-available/bisabayar.com
+grep -n proxy_pass /etc/nginx/sites-available/bisabayar.com
 nginx -t && systemctl reload nginx
 ```
+
+Salinan cadangannya dibuat lebih dulu supaya rollback tidak perlu mengedit apa
+pun di bawah tekanan.
 
 Downtime selesai. Uji lewat domain sungguhan: halaman utama, login, dan minimal
 satu alur transaksi sampai tuntas.
 
-### 7. Pasang backup
+### 8. Pasang backup
 
 ```bash
 crontab -e
@@ -237,13 +313,22 @@ Prisma.
 
 Cutover belum selesai sampai langkah ini hijau.
 
-### 8. Rollback, kalau perlu
+### 9. Rollback, kalau perlu
+
+**Sebelum langkah 7** — nginx belum disentuh, jadi cukup hidupkan kembali yang
+lama. Container boleh dibiarkan hidup di 3005; ia tidak menerima trafik.
 
 ```bash
-# kembalikan proxy_pass nginx ke port lama
+pm2 start whuz-app-2
+```
+
+**Setelah langkah 7** — kembalikan nginx ke 3004, lalu PM2:
+
+```bash
+cp /root/bisabayar.com.nginx.bak /etc/nginx/sites-available/bisabayar.com
 nginx -t && systemctl reload nginx
 pm2 start whuz-app-2
-cd /var/www/bisabayar && docker compose down
+cd /var/www/bisabayar && docker compose stop bisabayar-app
 ```
 
 Lengkap dan utuh selama MySQL host belum dimatikan. Setelah trafik masuk lewat

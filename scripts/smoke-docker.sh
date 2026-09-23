@@ -11,10 +11,10 @@
 #   2. Volume uploads. Kalau mount-nya salah alamat, unggahan tetap berhasil
 #      tapi hilang setiap container dibuat ulang.
 #
-# Pakai:  bash scripts/smoke-docker.sh [http://127.0.0.1:3004] [/var/www/bisabayar]
+# Pakai:  bash scripts/smoke-docker.sh [http://127.0.0.1:3005] [/var/www/bisabayar]
 #
 set -u
-BASE="${1:-http://127.0.0.1:3004}"
+BASE="${1:-http://127.0.0.1:3005}"
 DIR="${2:-.}"
 fail=0
 pass=0
