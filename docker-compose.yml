@@ -42,9 +42,16 @@ services:
       TZ: Asia/Jakarta
       LOG_DIR: /app/logs
     ports:
-      # Diikat ke loopback: nginx host yang mem-proxy. 3003 sudah dipakai
-      # transaksikilat di VPS yang sama.
-      - "127.0.0.1:3004:3000"
+      # Diikat ke loopback: nginx host yang mem-proxy.
+      #
+      # 3005, bukan 3004. VPS ini menjalankan lima aplikasi: whuz-app 3000,
+      # script-mitrapembayaran 3001, bayarinstant 3002, transaksikilat 3003, dan
+      # whuz-app-2 — pendahulu container ini — masih memegang 3004 lewat PM2.
+      #
+      # Port terpisah itu yang membuat cutover aman: container naik dan diuji
+      # SELAGI PM2 masih melayani trafik, dan perpindahan trafik terjadi hanya
+      # saat satu baris proxy_pass nginx diubah. Rollback = kembalikan baris itu.
+      - "127.0.0.1:3005:3000"
     volumes:
       - ./uploads:/app/public/uploads
       - ./logs:/app/logs
