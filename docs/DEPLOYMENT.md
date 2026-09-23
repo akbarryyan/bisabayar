@@ -8,6 +8,14 @@ GitHub masih terkunci — lalu di-push ke GitHub Container Registry. VPS hanya
 Rancangan lengkap beserta alasannya:
 [`superpowers/specs/2026-09-21-docker-deployment-design.md`](superpowers/specs/2026-09-21-docker-deployment-design.md)
 
+## Mulai dari mana
+
+| Keadaan | Bagian yang dipakai |
+|---|---|
+| **Belum pernah pakai Docker** (masih PM2) | **Build dan push dari laptop** → lalu **Cutover pertama dari PM2** §1–§8. Lewati "Deploy ke VPS" |
+| Rilis rutin, Docker sudah jalan | **Build dan push dari laptop** → **Deploy ke VPS** |
+| Ada yang rusak | **Troubleshooting** di bagian akhir |
+
 ## Arsitektur
 
 ```text
@@ -59,21 +67,18 @@ Login GHCR di laptop, sekali per mesin, token butuh scope `write:packages`:
 echo "<PAT_WRITE_PACKAGES>" | docker login ghcr.io -u akbarryyan --password-stdin
 ```
 
-### Catatan: legacy builder
+### Catatan: buildx
 
-Docker di laptop ini memakai legacy builder — buildx belum terpasang, dan
-Docker sendiri memperingatkan builder itu *deprecated*. Build tetap berhasil,
-hanya saja tanpa cache layer BuildKit setiap build ulang mengerjakan `npm ci`
-dari awal. Selama rilis masih dibangun manual, memasangnya menghemat banyak
-waktu:
+Laptop build memakai buildx (BuildKit). Kalau di mesin lain belum ada, Docker
+akan jatuh ke legacy builder yang sudah *deprecated* dan tanpa cache layer —
+setiap build ulang mengerjakan `npm ci` dari awal:
 
 ```bash
 sudo apt install docker-buildx
 ```
 
-Flag `--progress=plain` hanya berlaku setelah buildx terpasang; legacy builder
-menolaknya. Workflow GitHub Actions memakai buildx sendiri, jadi tidak
-terpengaruh.
+Flag `--progress=plain` hanya berlaku dengan buildx; legacy builder menolaknya
+dengan `unknown flag`.
 
 ## Deploy ke VPS
 
@@ -263,10 +268,8 @@ waktu yang berbeda.
 
 `rsync` kali kedua ini cepat karena hanya menyalin yang berubah sejak gladi
 bersih. Tetap `rsync`, bukan `mv` — berkas lama harus tetap di tempatnya sampai
-rollback tidak lagi dibutuhkan.
-
-`rsync`, bukan `mv` — berkas lama harus tetap di tempatnya sampai rollback tidak
-lagi dibutuhkan. `chown` diulang karena `rsync` membawa kepemilikan asal.
+rollback tidak lagi dibutuhkan. `chown` diulang karena `rsync` membawa
+kepemilikan asal.
 
 ### 6. Naikkan dan uji, produksi masih mati
 
