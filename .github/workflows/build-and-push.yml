@@ -1,0 +1,68 @@
+# Build image dan push ke GHCR.
+#
+# DORMAN: akun GitHub terkunci karena billing, jadi workflow ini belum pernah
+# berjalan. Selama itu, build dilakukan manual dari laptop — lihat
+# docs/DEPLOYMENT.md. Berkas ini sudah siap begitu akunnya pulih.
+#
+# Job `build-and-push` hanya berjalan kalau `verify` hijau, sehingga image tidak
+# pernah sampai ke registry dari kode yang test-nya merah.
+
+name: build-and-push
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: testpass
+          MYSQL_DATABASE: whuz_test
+        ports:
+          - 3399:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptestpass"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Siapkan skema database uji
+        run: npm run test:db:push
+      - name: Typecheck dan test
+        run: npm run verify
+
+  build-and-push:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Dua tag selalu. Tanpa tag sha, rollback tidak punya sasaran.
+          tags: |
+            ghcr.io/akbarryyan/bisabayar:latest
+            ghcr.io/akbarryyan/bisabayar:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
