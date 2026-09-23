@@ -55,3 +55,6 @@ docs/database
 /mysql-data/
 /uploads/
 /backups/
+
+# catatan rilis lokal (bukan sumber kebenaran; tag image yang menentukan)
+/.release-log

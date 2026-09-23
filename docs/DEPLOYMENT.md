@@ -13,7 +13,7 @@ Rancangan lengkap beserta alasannya:
 | Keadaan | Bagian yang dipakai |
 |---|---|
 | **Belum pernah pakai Docker** (masih PM2) | **Build dan push dari laptop** → lalu **Cutover pertama dari PM2** §1–§8. Lewati "Deploy ke VPS" |
-| Rilis rutin, Docker sudah jalan | **Build dan push dari laptop** → **Deploy ke VPS** |
+| Rilis rutin, Docker sudah jalan | `npm run release`, lalu **Deploy ke VPS**. Rinciannya di **Build dan push dari laptop** |
 | Ada yang rusak | **Troubleshooting** di bagian akhir |
 
 ## Arsitektur
@@ -40,7 +40,47 @@ sebelum kamu yakin.
 
 ## Build dan push dari laptop
 
-Jalankan gate-nya dulu. Jangan membangun image kalau ini merah.
+Ada dua cara, dan keduanya sah. Pilih yang cocok dengan keadaanmu saat itu.
+
+### Cara A — satu perintah (disarankan untuk rilis biasa)
+
+```bash
+cd ~/Kerjaan/repository/bisabayar
+npm run release
+```
+
+Skrip menjalankan seluruh urutannya dan **berhenti sebelum membangun apa pun**
+kalau gate-nya merah:
+
+1. Pastikan di branch `main` dan working tree bersih
+2. `git pull --ff-only`
+3. `npm run verify` — typecheck + seluruh test
+4. `docker build` dengan dua tag: `:latest` dan `:<sha>`
+5. Periksa isi image (`server.js`, Prisma CLI, `prisma/migrations`, `rotating-file-stream`)
+6. Push keduanya
+7. Catat ke `.release-log`, lalu cetak perintah yang harus dijalankan di VPS —
+   termasuk peringatan bila rilis ini mengandung migration
+
+Nilai utamanya bukan menghemat ketikan, melainkan membuat "lupa menjalankan
+test" menjadi tidak mungkin, bukan sekadar tidak disarankan. Setiap image yang
+ada di GHCR karena itu pasti dibangun dari kode yang test-nya hijau.
+
+Dua saklar untuk keadaan khusus:
+
+```bash
+npm run release -- --no-push      # bangun dan periksa saja, jangan dorong
+npm run release -- --allow-dirty  # izinkan working tree kotor
+```
+
+`--allow-dirty` perlu kehati-hatian: image ditandai dengan sha commit terakhir,
+jadi isinya tidak cocok dengan tag-nya — dan rollback ke tag itu nanti
+mengembalikan kode yang berbeda dari yang benar-benar dirilis.
+
+### Cara B — manual, langkah demi langkah
+
+Dipakai saat ingin mengendalikan tiap tahap: menyelidiki kegagalan build,
+membangun dari branch selain `main`, atau merilis dari mesin yang belum punya
+database uji.
 
 ```bash
 cd ~/Kerjaan/repository/bisabayar
@@ -55,7 +95,9 @@ docker push ghcr.io/akbarryyan/bisabayar:latest
 docker push "ghcr.io/akbarryyan/bisabayar:$SHA"
 ```
 
-**Dua tag, selalu.** Tanpa tag sha, rollback tidak punya sasaran.
+**Dua tag, selalu.** Tanpa tag sha, rollback tidak punya sasaran. Ini kesalahan
+yang paling mudah terjadi di jalur manual, dan akibatnya baru terasa berbulan
+kemudian saat rollback dibutuhkan.
 
 Tidak ada `--build-arg`. Ketiga `NEXT_PUBLIC_*` hanya dipakai di kode server dan
 punya fallback ke `APP_URL` runtime, jadi ganti domain cukup mengubah `.env` di
