@@ -97,12 +97,23 @@ docker push "$IMAGE:$SHA"
 SHA_SEBELUMNYA=$(tail -1 "$CATATAN" 2>/dev/null | awk '{print $2}' || true)
 printf '%s %s %s\n' "$(date -Iseconds)" "$SHA" "$UKURAN" >> "$CATATAN"
 
-ADA_MIGRATION=0
-if [ -n "$SHA_SEBELUMNYA" ] && git rev-parse --verify --quiet "$SHA_SEBELUMNYA" >/dev/null; then
-  if [ -n "$(git diff --name-only "$SHA_SEBELUMNYA..HEAD" -- prisma/migrations)" ]; then
-    ADA_MIGRATION=1
-  fi
+# Kategori apa saja yang berubah sejak rilis terakhir. Kode aplikasi hidup di
+# DALAM image, jadi rilis biasa cukup pull + up -d di VPS — tetapi migration,
+# docker-compose.yml, dan scripts/ tidak ikut ke image dan butuh langkah
+# tambahan yang paling mudah terlupakan justru saat rilis terasa sepele.
+PERUBAHAN=""
+TIDAK_BISA_DIPERIKSA=0
+if [ -n "$SHA_SEBELUMNYA" ]; then
+  PERUBAHAN=$(bash scripts/release-followup.sh "$SHA_SEBELUMNYA" HEAD) || TIDAK_BISA_DIPERIKSA=1
+else
+  TIDAK_BISA_DIPERIKSA=1
 fi
+
+punya() { printf '%s\n' "$PERUBAHAN" | grep -qx "$1"; }
+
+PERLU_GIT_PULL=0
+punya COMPOSE && PERLU_GIT_PULL=1
+punya SCRIPTS && PERLU_GIT_PULL=1
 
 echo
 echo "─────────────────────────────────────────────────────────────"
@@ -112,15 +123,27 @@ echo " Langkah di VPS:"
 echo
 echo "   ssh <user>@<vps-host>"
 echo "   cd /var/www/bisabayar"
+if [ "$PERLU_GIT_PULL" -eq 1 ]; then
+  ALASAN=""
+  punya COMPOSE && ALASAN="docker-compose.yml"
+  punya SCRIPTS && ALASAN="${ALASAN:+$ALASAN dan }scripts/"
+  echo "   git pull origin main          # WAJIB: $ALASAN berubah di rilis ini"
+fi
 echo "   docker compose pull"
-if [ "$ADA_MIGRATION" -eq 1 ]; then
+if punya MIGRATION; then
   echo "   docker compose run --rm bisabayar-app \\"
   echo "     node node_modules/prisma/build/index.js migrate deploy   # RILIS INI ADA MIGRATION"
-elif [ -z "$SHA_SEBELUMNYA" ]; then
-  echo "   # Rilis pertama lewat skrip ini — periksa migration sendiri:"
-  echo "   #   git diff --name-only <sha-terakhir-dideploy>..HEAD -- prisma/migrations"
 fi
 echo "   docker compose up -d"
 echo "   docker image prune -af"
 echo "   bash scripts/smoke-docker.sh http://127.0.0.1:3005 /var/www/bisabayar"
+
+if [ "$TIDAK_BISA_DIPERIKSA" -eq 1 ]; then
+  echo
+  echo " Catatan: rilis sebelumnya tidak diketahui, jadi migration, compose,"
+  echo " dan scripts TIDAK diperiksa otomatis. Periksa sendiri terhadap sha"
+  echo " yang benar-benar terpasang di VPS:"
+  echo
+  echo "   git diff --name-only <sha-di-vps>..HEAD -- prisma/migrations docker-compose.yml scripts"
+fi
 echo "─────────────────────────────────────────────────────────────"
